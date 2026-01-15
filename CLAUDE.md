@@ -1,362 +1,123 @@
-# Docker Container Management Configuration
+# psdoom-docker
 
-## Agent Role
+A Dockerized version of **psdoom-ng** - the classic DOOM game where monsters represent running Docker containers. Kill a monster, stop a container!
 
-You are an expert Docker engineer specialized in:
-- Building and optimizing Docker images
-- Dockerfile best practices and multi-stage builds
-- Docker Compose orchestration
-- Container debugging and troubleshooting
-- Build log analysis and error resolution
-- Container runtime management
-- Image layer optimization and caching strategies
+## Project Overview
 
-## MCP Server Integration
+This project packages psdoom-ng in a Docker container with VNC/noVNC access, modified to target Docker containers instead of system processes. It's a fun and visual way to manage containers.
 
-This configuration includes MCP servers for enhanced Docker management:
+## Project Structure
 
-### docker-mcp
-Direct Docker API access without shell commands:
-- **create-container**: Create standalone Docker containers with image, ports, env config
-- **deploy-compose**: Deploy Docker Compose stacks from YAML
-- **get-logs**: Retrieve container logs directly
-- **list-containers**: List all containers with status
-
-### filesystem
-Navigate and manage project files:
-- Read/write Dockerfiles, docker-compose.yml, .dockerignore
-- Browse project structure
-- Access configuration files
-
-### memory
-Persistent memory across sessions:
-- Remember build configurations
-- Track container states and history
-- Store troubleshooting context
-
-## Available Commands
-
-### Build & Image Commands
-| Command | Purpose |
-|---------|---------|
-| `/build` | Build Docker image from Dockerfile with detailed output |
-| `/analyze-dockerfile` | Review Dockerfile for best practices and optimizations |
-| `/image-history` | Analyze image layers and sizes |
-
-### Container Commands
-| Command | Purpose |
-|---------|---------|
-| `/exec` | Run commands inside a running container |
-| `/logs` | View and analyze container logs |
-| `/inspect` | Detailed inspection of container or image |
-
-### Troubleshooting Commands
-| Command | Purpose |
-|---------|---------|
-| `/troubleshoot` | Diagnose build failures with solution suggestions |
-| `/health-check` | Check container and Docker daemon health |
-
-### Compose Commands
-| Command | Purpose |
-|---------|---------|
-| `/compose-up` | Start services with docker-compose |
-| `/compose-validate` | Validate docker-compose.yml syntax and structure |
-
-## Dockerfile Best Practices
-
-### Layer Optimization
-
-```dockerfile
-# CORRECT: Combine RUN commands to reduce layers
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        package1 \
-        package2 \
-    && rm -rf /var/lib/apt/lists/*
-
-# WRONG: Multiple RUN commands create unnecessary layers
-RUN apt-get update
-RUN apt-get install -y package1
-RUN apt-get install -y package2
+```
+psdoom-docker/
+├── Dockerfile           # Multi-stage build for psdoom-ng with VNC
+├── docker-compose.yml   # Service definition with Docker socket mount
+├── start.sh             # Container entrypoint (Xvfb, VNC, noVNC)
+├── docker-ps.sh         # Lists containers in psdoom format
+├── docker-kill.sh       # Stops containers when killed in game
+├── psdoom-docker.sh     # Wrapper script for running psdoom-ng
+└── README.md            # User documentation
 ```
 
-### Multi-Stage Builds
+## Key Components
 
-```dockerfile
-# CORRECT: Use multi-stage builds for smaller final images
-FROM node:18-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
+### Dockerfile
+- Base: Ubuntu 22.04
+- Builds psdoom-ng from source (ChrisTitusTech/psdoom-ng)
+- Includes Xvfb, x11vnc, noVNC, fluxbox
+- Downloads DOOM shareware WAD
+- Installs Docker CLI for container management
 
-FROM node:18-alpine AS runtime
-WORKDIR /app
-COPY --from=builder /app/node_modules ./node_modules
-COPY . .
-USER node
-CMD ["node", "server.js"]
-```
+### Docker Integration Scripts
 
-### Security Best Practices
+| Script | Purpose |
+|--------|---------|
+| `docker-ps.sh` | Lists running containers in psdoom format (user, pid, name, daemon_flag) |
+| `docker-kill.sh` | Maps pseudo-PIDs to container IDs and runs `docker stop` |
+| `psdoom-docker.sh` | Wrapper that sets environment variables and launches game |
 
-```dockerfile
-# CORRECT: Run as non-root user
-RUN addgroup -g 1001 appgroup && \
-    adduser -u 1001 -G appgroup -D appuser
-USER appuser
+### Environment Variables
+- `PSDOOMPSCMD` - Path to process listing script (`/usr/local/bin/docker-ps.sh`)
+- `PSDOOMKILLCMD` - Path to kill script (`/usr/local/bin/docker-kill.sh`)
+- `DISPLAY` - X11 display (`:99` for Xvfb)
 
-# CORRECT: Use specific image tags, not 'latest'
-FROM python:3.11-slim-bookworm
+## Ports
 
-# CORRECT: Don't store secrets in image
-# Use build args or runtime env vars instead
-ARG DATABASE_URL
-ENV DATABASE_URL=${DATABASE_URL}
-```
+| Port | Service |
+|------|---------|
+| 5900 | VNC server |
+| 6080 | noVNC web interface |
 
-### Common Dockerfile Mistakes
+## Development Commands
 
-| Mistake | Problem | Fix |
-|---------|---------|-----|
-| `FROM ubuntu:latest` | Unpredictable builds | Use specific tag: `ubuntu:22.04` |
-| `ADD` for local files | Unexpected behavior | Use `COPY` for local files |
-| `RUN apt-get upgrade` | Large layers, security issues | Avoid full upgrades |
-| Running as root | Security vulnerability | Add `USER` instruction |
-| No `.dockerignore` | Large context, slow builds | Create `.dockerignore` |
-| `COPY . .` first | Cache invalidation | Copy dependencies first |
-
-## Docker Compose Standards
-
-### Service Structure
-
-```yaml
-version: '3.8'
-
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime  # For multi-stage builds
-    image: myapp:${TAG:-latest}
-    container_name: myapp
-    restart: unless-stopped
-    environment:
-      - NODE_ENV=production
-    env_file:
-      - .env
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./data:/app/data:ro  # Read-only when possible
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - app-network
-    depends_on:
-      db:
-        condition: service_healthy
-
-  db:
-    image: postgres:15-alpine
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-
-networks:
-  app-network:
-    driver: bridge
-```
-
-## Debugging Quick Reference
-
-### Build Failures
-
+### Build
 ```bash
-# Build with verbose output
-docker build --progress=plain --no-cache -t myimage .
-
-# Build specific stage
-docker build --target builder -t myimage:builder .
-
-# Check build context size
-du -sh . && du -sh .git
-
-# Debug build by stopping at specific layer
-docker build --target debug-stage .
+docker compose build
 ```
 
-### Container Issues
-
+### Run
 ```bash
-# View logs with timestamps
-docker logs -f --timestamps container_name
-
-# Get last 100 lines
-docker logs --tail 100 container_name
-
-# Inspect container details
-docker inspect container_name
-
-# Check resource usage
-docker stats container_name
-
-# Execute shell in running container
-docker exec -it container_name /bin/sh
+docker compose up -d
 ```
 
-### Network Issues
+### Access
+- Browser: http://localhost:6080 (password: `1234`)
+- VNC client: localhost:5900
 
+### Launch game manually
 ```bash
-# List networks
-docker network ls
-
-# Inspect network
-docker network inspect network_name
-
-# Check container networking
-docker exec container_name cat /etc/hosts
-docker exec container_name ping other_container
+docker exec -e DISPLAY=:99 psdoom-ng psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
 ```
 
-### Common Error Solutions
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `COPY failed: file not found` | File outside build context | Check `.dockerignore`, verify path |
-| `Cannot connect to Docker daemon` | Docker not running | `sudo systemctl start docker` |
-| `no space left on device` | Full disk | `docker system prune` |
-| `port already allocated` | Port conflict | Change port mapping or stop conflicting container |
-| `OOMKilled` | Out of memory | Increase memory limit or optimize app |
-| `exec format error` | Wrong architecture | Build for correct platform `--platform` |
-
-## Docker Commands Reference
-
-### Safe Commands (Allowed)
-
+### View logs
 ```bash
-# Building
-docker build -t name:tag .
-docker build --no-cache -t name .
-docker build -f Dockerfile.dev .
-
-# Running
-docker run -d --name container image
-docker run -it --rm image /bin/sh
-docker run -p 8080:80 image
-docker run -v $(pwd):/app image
-docker run --env-file .env image
-
-# Container management
-docker start/stop/restart container
-docker logs container
-docker exec -it container command
-docker inspect container
-docker stats
-
-# Images
-docker images
-docker image ls
-docker image history image
-docker tag source target
-
-# Compose
-docker-compose up -d
-docker-compose down
-docker-compose logs
-docker-compose ps
-docker-compose build
-docker-compose exec service command
-
-# Cleanup (safe)
-docker container prune
-docker image prune
-docker system df
+docker compose logs -f psdoom-ng
 ```
 
-### Restricted Commands (Require Confirmation)
-
+### Stop
 ```bash
-# These require explicit user confirmation
-docker system prune -a      # Removes all unused data
-docker volume prune         # Removes unused volumes
-docker rmi $(docker images -q)  # Removes all images
+docker compose down
 ```
 
-## .dockerignore Template
+## How Container Killing Works
 
-```
-# Version control
-.git
-.gitignore
+1. `docker-ps.sh` runs periodically, listing containers with pseudo-PIDs (starting at 10000)
+2. Mapping stored in `/tmp/docker-containers.map` (format: `pseudo-pid container-id container-name`)
+3. When a monster dies, psdoom-ng calls `docker-kill.sh` with the pseudo-PID
+4. `docker-kill.sh` looks up the container ID and runs `docker stop`
+5. Kill events logged to `/tmp/docker-kills.log`
 
-# Dependencies (rebuild in container)
-node_modules
-vendor
-__pycache__
-*.pyc
-venv
-.venv
+## Testing
 
-# IDE and editors
-.idea
-.vscode
-*.swp
-*.swo
-
-# Build artifacts
-dist
-build
-*.log
-
-# Environment files (use env_file in compose)
-.env
-.env.local
-*.env
-
-# Documentation
-README.md
-docs/
-*.md
-
-# Tests
-test/
-tests/
-*_test.go
-*.test.js
-
-# Docker files (usually not needed in context)
-Dockerfile*
-docker-compose*.yml
-.docker
-
-# OS files
-.DS_Store
-Thumbs.db
+Create test containers to appear as enemies:
+```bash
+docker run -d --name test1 nginx
+docker run -d --name test2 redis
+docker run -d --name test3 alpine sleep 3600
 ```
 
-## Agent Behavior Rules
+## Important Notes
 
-1. **Safety first** - Never run destructive commands without user confirmation
-2. **Explain errors** - When builds fail, analyze logs and explain the root cause
-3. **Optimize images** - Suggest multi-stage builds and layer optimization
-4. **Security aware** - Flag security issues like running as root or exposed secrets
-5. **Platform aware** - Consider multi-architecture builds when relevant
-6. **Cache friendly** - Structure Dockerfiles to maximize build cache usage
-7. **Resource conscious** - Warn about resource-intensive operations
-8. **Version specific** - Use specific image tags, avoid `latest` in examples
+- The psdoom-ng container excludes itself from the enemy list
+- Container names truncated to 8 characters for display
+- Requires Docker socket mount (`/var/run/docker.sock`) for container management
+- VNC password is hardcoded as `1234`
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| No enemies in game | Check if other containers are running: `docker ps` |
+| VNC connection refused | Verify container is running: `docker compose ps` |
+| Game won't start | Check Xvfb: `docker exec psdoom-ng xdpyinfo -display :99` |
+| Container not stopping | Check Docker socket mount and permissions |
+| WAD file missing | Rebuild image or manually download doom1.wad |
+
+## Game Controls
+
+- **Arrow keys** - Move
+- **Ctrl** - Shoot
+- **Space** - Open doors
+- **Shift** - Run
+- **1-7** - Select weapon
+- **Esc** - Menu
