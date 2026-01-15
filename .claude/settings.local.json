@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__filesystem__write_file",
+      "mcp__filesystem__list_directory"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "docker",
+    "filesystem",
+    "memory"
+  ]
+}

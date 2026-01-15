@@ -1,0 +1,13 @@
+services:
+  psdoom-ng:
+    build: .
+    container_name: psdoom-ng
+    ports:
+      - "5900:5900"  # VNC port
+      - "6080:6080"  # noVNC web interface (browser access)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Read-write to allow stopping containers
+    environment:
+      - DISPLAY=:99
+    stdin_open: true
+    tty: true
