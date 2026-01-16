@@ -31,23 +31,6 @@ docker compose build
 docker compose up -d
 ```
 
-### Play
-
-1. Open browser: **http://localhost:6080**
-2. Password: `1234`
-3. Right-click → Terminal
-4. Run mode selector:
-
-```bash
-/usr/local/bin/scripts/select-mode.sh
-```
-
-5. Start the game:
-
-```bash
-source /tmp/psdoom-config.env && psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
-```
-
 ## One-Command Launch
 
 Start the game directly from your terminal (no VNC interaction needed):
@@ -64,7 +47,10 @@ docker exec -d -e DISPLAY=:99 -e PSDOOM_MODE=docker containerdoom psdoom-ng -iwa
 docker exec -d -e DISPLAY=:99 -e PSDOOM_MODE=k8s -e K8S_CONTEXT=my-cluster -e K8S_NAMESPACE=default containerdoom psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
 ```
 
-Then open http://localhost:6080 to play.
+### Play
+
+1. Open browser: **http://localhost:6080**
+2. Password: `1234`
 
 ## Configuration Modes
 
