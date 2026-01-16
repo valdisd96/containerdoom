@@ -1,23 +1,21 @@
-# psdoom-docker
+# ContainerDoom
 
-A Dockerized version of **psdoom-ng** - the classic DOOM game where monsters represent running Docker containers. Kill a monster, stop a container!
+Kill Docker containers or Kubernetes pods by playing DOOM!
 
-## What is psdoom?
-
-psdoom (Process DOOM) is a modification of the classic DOOM game where each monster represents a running process. When you kill a monster, the corresponding process gets terminated. This Docker version takes it further - instead of system processes, monsters represent **Docker containers** running on your host.
+A Dockerized version of **psdoom-ng** with support for both local Docker containers and Kubernetes clusters.
 
 ## Features
 
 - Play DOOM in your browser via noVNC
-- Monsters represent running Docker containers
-- Killing a monster stops the corresponding container
-- Self-contained Docker environment
-- No installation required - just Docker
+- **Docker mode**: Monsters represent running Docker containers
+- **Kubernetes mode**: Monsters represent pods in your cluster
+- Interactive mode selector or environment variable configuration
+- Support for multiple K8s contexts and namespaces
 
 ## Prerequisites
 
-- Docker
-- Docker Compose
+- Docker & Docker Compose
+- (Optional) kubectl configured with cluster access
 
 ## Quick Start
 
@@ -35,37 +33,111 @@ docker compose up -d
 
 ### Play
 
-1. Open your browser: **http://localhost:6080**
-2. Enter VNC password: `1234`
-3. Right-click on desktop → Terminal
-4. Run the game:
+1. Open browser: **http://localhost:6080**
+2. Password: `1234`
+3. Right-click → Terminal
+4. Run mode selector:
 
 ```bash
-psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
+/usr/local/bin/scripts/select-mode.sh
 ```
 
-Or launch directly from host:
+5. Start the game:
 
 ```bash
-docker exec -e DISPLAY=:99 psdoom-ng psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
+source /tmp/psdoom-config.env && psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
 ```
+
+## One-Command Launch
+
+Start the game directly from your terminal (no VNC interaction needed):
+
+### Docker Mode
+
+```bash
+docker exec -d -e DISPLAY=:99 -e PSDOOM_MODE=docker containerdoom psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
+```
+
+### Kubernetes Mode
+
+```bash
+docker exec -d -e DISPLAY=:99 -e PSDOOM_MODE=k8s -e K8S_CONTEXT=my-cluster -e K8S_NAMESPACE=default containerdoom psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
+```
+
+Then open http://localhost:6080 to play.
+
+## Configuration Modes
+
+### Interactive Mode (Default)
+
+```bash
+docker compose up -d
+# Then use the mode selector in VNC terminal
+```
+
+### Docker Mode (Direct)
+
+```bash
+PSDOOM_MODE=docker docker compose up -d
+```
+
+### Kubernetes Mode (Direct)
+
+```bash
+PSDOOM_MODE=k8s K8S_CONTEXT=my-cluster K8S_NAMESPACE=default docker compose up -d
+```
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PSDOOM_MODE` | `select`, `docker`, or `k8s` | `select` |
+| `K8S_CONTEXT` | Kubernetes context name | (current context) |
+| `K8S_NAMESPACE` | Kubernetes namespace | `default` |
 
 ## Create Test Targets
 
-Start some containers to appear as enemies:
+### Docker containers
 
 ```bash
-docker run -d --name victim1 nginx
-docker run -d --name victim2 redis
-docker run -d --name victim3 alpine sleep 3600
+for i in {1..15}; do docker run -d --name victim$i alpine sleep 3600; done 
+for i in {1..15}; do docker rm -f victim$i 2>/dev/null; done # delete after
+```
+
+### Kubernetes pods
+
+```bash
+kubectl run victim1 --image=nginx
+kubectl run victim2 --image=redis
+kubectl run victim3 --image=alpine -- sleep 3600
+```
+
+## Project Structure
+
+```
+containerdoom/
+├── Dockerfile              # Multi-stage build with Docker CLI + kubectl
+├── docker-compose.yml      # Service definition
+├── start.sh                # Container entrypoint
+├── scripts/
+│   ├── select-mode.sh      # Interactive mode selector
+│   ├── ps-wrapper.sh       # Unified process listing
+│   ├── kill-wrapper.sh     # Unified kill handler
+│   ├── ps/
+│   │   ├── docker-ps.sh    # Docker container listing
+│   │   └── k8s-ps.sh       # Kubernetes pod listing
+│   └── kill/
+│       ├── docker-kill.sh  # Docker container stop
+│       └── k8s-kill.sh     # Kubernetes pod delete
+└── README.md
 ```
 
 ## Ports
 
 | Port | Description |
 |------|-------------|
-| 5900 | VNC server (for VNC clients) |
-| 6080 | noVNC web interface (browser access) |
+| 5900 | VNC server |
+| 6080 | noVNC web interface |
 
 ## Game Controls
 
@@ -78,17 +150,9 @@ docker run -d --name victim3 alpine sleep 3600
 | 1-7 | Select weapon |
 | Esc | Menu |
 
-## How It Works
-
-1. The container runs psdoom-ng with custom scripts that interface with Docker
-2. `docker-ps.sh` lists running containers and assigns pseudo-PIDs
-3. Containers appear as monsters in the game
-4. When you kill a monster, `docker-kill.sh` runs `docker stop` on that container
-5. The psdoom-ng container excludes itself from the enemy list
-
 ## Warning
 
-⚠️ **This can actually stop your Docker containers!** Use with caution and don't run important services while playing. Consider using dedicated test containers.
+⚠️ **This can actually stop your containers/pods!** Use with caution. Consider using dedicated test targets.
 
 ## Stopping
 
@@ -100,37 +164,31 @@ docker compose down
 
 | Issue | Solution |
 |-------|----------|
-| No enemies in game | Start some containers: `docker run -d --name test nginx` |
-| Can't connect to VNC | Check container is running: `docker compose ps` |
+| No enemies | Start some containers/pods as targets |
+| K8s connection failed | Check kubeconfig mount and permissions |
+| Can't connect to VNC | Verify container is running: `docker compose ps` |
 | Permission denied | Ensure Docker socket is accessible |
-| Game crashes | Try rebuilding: `docker compose build --no-cache` |
 
 ## Credits
 
 ### Original psDooM
-- **Dennis Chao** - Original concept and implementation at University of New Mexico
-- **David Koppenhofer** - Primary developer and maintainer of psDooM
+- **Dennis Chao** - Original concept (University of New Mexico)
+- **David Koppenhofer** - Primary developer
 
 ### psdoom-ng
-- **Orson Teodoro** - Adapted psDooM to Chocolate Doom engine
-- **ChrisTitusTech** - Current GitHub fork maintainer
+- **Orson Teodoro** - Chocolate Doom adaptation
+- **ChrisTitusTech** - Current maintainer
 
-### Other Contributors
+### Other
 - **Simon Howard** - Chocolate Doom engine
-- **Hector Rivas Gandara** - External process sources and cloud services support
-- **Jesse Spielman** - Mac OS X compatibility
-
-### Foundations
-- **id Software** - Original DOOM (source released under GPL in 1997)
-- **Udo Munk** - XDoom (base for original psDooM)
+- **id Software** - Original DOOM
 
 ## References
 
 - [Original psDooM](https://psdoom.sourceforge.net/)
-- [psdoom-ng on GitHub](https://github.com/ChrisTitusTech/psdoom-ng)
-- [Doom as an Interface for Process Management (Paper)](https://www.cs.unm.edu/~dlchao/flake/doom/chi/chi.html)
+- [psdoom-ng](https://github.com/ChrisTitusTech/psdoom-ng)
 - [Chocolate Doom](https://www.chocolate-doom.org/)
 
 ## License
 
-This project uses components licensed under GPL-2.0, inherited from psDooM and Chocolate Doom.
+GPL-2.0 (inherited from psDooM and Chocolate Doom)
