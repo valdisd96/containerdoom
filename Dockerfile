@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     x11-utils \
     ca-certificates \
     gnupg \
+    apt-transport-https \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI to interact with host Docker daemon
@@ -46,16 +47,23 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     apt-get install -y docker-ce-cli && \
     rm -rf /var/lib/apt/lists/*
 
+# Install kubectl for Kubernetes support
+RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" > /etc/apt/sources.list.d/kubernetes.list && \
+    apt-get update && \
+    apt-get install -y kubectl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Clone and build psdoom-ng
 WORKDIR /tmp
 RUN git clone https://github.com/ChrisTitusTech/psdoom-ng.git
 
-# Build psdoom-ng (sequential build to ensure binary is created before failure)
+# Build psdoom-ng
 WORKDIR /tmp/psdoom-ng/trunk
 RUN autoreconf -i && ./configure
 # Build but ignore the desktop file error - the binary gets created before that fails
 RUN make ; exit 0
-# The binary is created as chocolate-doom then copied to psdoom-ng, copy it manually
+# The binary is created as chocolate-doom, copy it to psdoom-ng
 RUN cp src/chocolate-doom /usr/local/bin/psdoom-ng && chmod +x /usr/local/bin/psdoom-ng
 
 # Create doom directory and download WAD
@@ -72,22 +80,28 @@ RUN wget -q --timeout=30 https://distro.ibiblio.org/slitaz/sources/packages/d/do
 RUN mkdir -p /root/.vnc && \
     x11vnc -storepasswd 1234 /root/.vnc/passwd
 
+# Copy all scripts
+COPY scripts/ /usr/local/bin/scripts/
+RUN chmod +x /usr/local/bin/scripts/*.sh /usr/local/bin/scripts/*/*.sh
+
 # Create startup script
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Copy Docker integration scripts for psdoom-ng
-COPY docker-ps.sh /usr/local/bin/docker-ps.sh
-COPY docker-kill.sh /usr/local/bin/docker-kill.sh
-COPY psdoom-docker.sh /usr/local/bin/psdoom-docker
-RUN chmod +x /usr/local/bin/docker-ps.sh /usr/local/bin/docker-kill.sh /usr/local/bin/psdoom-docker
+# Set environment variables for psdoom-ng
+ENV PSDOOMPSCMD="/usr/local/bin/scripts/ps-wrapper.sh"
+ENV PSDOOMKILLCMD="/usr/local/bin/scripts/kill-wrapper.sh"
 
-# Set environment variables for Docker container mode
-ENV PSDOOMPSCMD="/usr/local/bin/docker-ps.sh"
-ENV PSDOOMKILLCMD="/usr/local/bin/docker-kill.sh"
+# Default mode (can be overridden)
+ENV PSDOOM_MODE="select"
+ENV K8S_CONTEXT=""
+ENV K8S_NAMESPACE="default"
 
 # Setup noVNC
 RUN ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+
+# Create kubeconfig directory
+RUN mkdir -p /root/.kube
 
 EXPOSE 5900 6080
 

@@ -1,13 +1,21 @@
 services:
-  psdoom-ng:
+  containerdoom:
     build: .
-    container_name: psdoom-ng
+    container_name: containerdoom
     ports:
       - "5900:5900"  # VNC port
       - "6080:6080"  # noVNC web interface (browser access)
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock  # Read-write to allow stopping containers
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Kubeconfig for Kubernetes support (optional)
+      - ~/.kube:/root/.kube:ro
     environment:
       - DISPLAY=:99
+      # Mode selection: "select" (interactive), "docker", or "k8s"
+      - PSDOOM_MODE=${PSDOOM_MODE:-select}
+      # Kubernetes settings (only used when PSDOOM_MODE=k8s)
+      - K8S_CONTEXT=${K8S_CONTEXT:-}
+      - K8S_NAMESPACE=${K8S_NAMESPACE:-default}
     stdin_open: true
     tty: true

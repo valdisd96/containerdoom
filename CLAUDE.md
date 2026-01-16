@@ -1,52 +1,59 @@
-# psdoom-docker
+# ContainerDoom
 
-A Dockerized version of **psdoom-ng** - the classic DOOM game where monsters represent running Docker containers. Kill a monster, stop a container!
+Kill Docker containers or Kubernetes pods by playing DOOM!
 
 ## Project Overview
 
-This project packages psdoom-ng in a Docker container with VNC/noVNC access, modified to target Docker containers instead of system processes. It's a fun and visual way to manage containers.
+This project packages psdoom-ng in a Docker container with VNC/noVNC access. It supports two backends:
+- **Docker**: Kill local Docker containers
+- **Kubernetes**: Delete pods in a K8s cluster
 
 ## Project Structure
 
 ```
-psdoom-docker/
-├── Dockerfile           # Multi-stage build for psdoom-ng with VNC
-├── docker-compose.yml   # Service definition with Docker socket mount
-├── start.sh             # Container entrypoint (Xvfb, VNC, noVNC)
-├── docker-ps.sh         # Lists containers in psdoom format
-├── docker-kill.sh       # Stops containers when killed in game
-├── psdoom-docker.sh     # Wrapper script for running psdoom-ng
-└── README.md            # User documentation
+containerdoom/
+├── Dockerfile              # Build with Docker CLI + kubectl
+├── docker-compose.yml      # Service definition with mounts
+├── start.sh                # Container entrypoint (Xvfb, VNC, noVNC)
+├── scripts/
+│   ├── select-mode.sh      # Interactive mode selector (TUI)
+│   ├── ps-wrapper.sh       # Routes to docker/k8s ps script
+│   ├── kill-wrapper.sh     # Routes to docker/k8s kill script
+│   ├── ps/
+│   │   ├── docker-ps.sh    # Lists Docker containers
+│   │   └── k8s-ps.sh       # Lists Kubernetes pods
+│   └── kill/
+│       ├── docker-kill.sh  # Stops Docker containers
+│       └── k8s-kill.sh     # Deletes Kubernetes pods
+└── README.md
 ```
 
 ## Key Components
 
-### Dockerfile
-- Base: Ubuntu 22.04
-- Builds psdoom-ng from source (ChrisTitusTech/psdoom-ng)
-- Includes Xvfb, x11vnc, noVNC, fluxbox
-- Downloads DOOM shareware WAD
-- Installs Docker CLI for container management
+### Mode Selection
 
-### Docker Integration Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `docker-ps.sh` | Lists running containers in psdoom format (user, pid, name, daemon_flag) |
-| `docker-kill.sh` | Maps pseudo-PIDs to container IDs and runs `docker stop` |
-| `psdoom-docker.sh` | Wrapper that sets environment variables and launches game |
+| Mode | Description |
+|------|-------------|
+| `select` | Interactive TUI menu (default) |
+| `docker` | Docker containers only |
+| `k8s` | Kubernetes pods only |
 
 ### Environment Variables
-- `PSDOOMPSCMD` - Path to process listing script (`/usr/local/bin/docker-ps.sh`)
-- `PSDOOMKILLCMD` - Path to kill script (`/usr/local/bin/docker-kill.sh`)
-- `DISPLAY` - X11 display (`:99` for Xvfb)
 
-## Ports
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `PSDOOM_MODE` | Backend selection | `select` |
+| `K8S_CONTEXT` | Kubernetes context | (current) |
+| `K8S_NAMESPACE` | Kubernetes namespace | `default` |
+| `PSDOOMPSCMD` | Process listing script | `/usr/local/bin/scripts/ps-wrapper.sh` |
+| `PSDOOMKILLCMD` | Kill script | `/usr/local/bin/scripts/kill-wrapper.sh` |
 
-| Port | Service |
-|------|---------|
-| 5900 | VNC server |
-| 6080 | noVNC web interface |
+### Volumes
+
+| Mount | Purpose |
+|-------|---------|
+| `/var/run/docker.sock` | Docker daemon access |
+| `~/.kube:/root/.kube:ro` | Kubernetes config (read-only) |
 
 ## Development Commands
 
@@ -55,23 +62,24 @@ psdoom-docker/
 docker compose build
 ```
 
-### Run
+### Run (Interactive)
 ```bash
 docker compose up -d
 ```
 
-### Access
-- Browser: http://localhost:6080 (password: `1234`)
-- VNC client: localhost:5900
-
-### Launch game manually
+### Run (Docker mode)
 ```bash
-docker exec -e DISPLAY=:99 psdoom-ng psdoom-ng -iwad /usr/share/games/doom/doom1.wad -window
+PSDOOM_MODE=docker docker compose up -d
+```
+
+### Run (K8s mode)
+```bash
+PSDOOM_MODE=k8s K8S_CONTEXT=minikube K8S_NAMESPACE=default docker compose up -d
 ```
 
 ### View logs
 ```bash
-docker compose logs -f psdoom-ng
+docker compose logs -f containerdoom
 ```
 
 ### Stop
@@ -79,45 +87,41 @@ docker compose logs -f psdoom-ng
 docker compose down
 ```
 
-## How Container Killing Works
+## How It Works
 
-1. `docker-ps.sh` runs periodically, listing containers with pseudo-PIDs (starting at 10000)
-2. Mapping stored in `/tmp/docker-containers.map` (format: `pseudo-pid container-id container-name`)
-3. When a monster dies, psdoom-ng calls `docker-kill.sh` with the pseudo-PID
-4. `docker-kill.sh` looks up the container ID and runs `docker stop`
-5. Kill events logged to `/tmp/docker-kills.log`
+1. `ps-wrapper.sh` checks `PSDOOM_MODE` and calls appropriate backend
+2. Backend script lists targets and creates mapping in `/tmp/psdoom-targets.map`
+3. Mapping format: `<pseudo-pid> <id> <name> <type>`
+4. When monster dies, `kill-wrapper.sh` routes to correct kill script
+5. Kill script looks up target in mapping and executes stop/delete
+6. Actions logged to `/tmp/psdoom-kills.log`
 
 ## Testing
 
-Create test containers to appear as enemies:
+### Docker targets
 ```bash
 docker run -d --name test1 nginx
 docker run -d --name test2 redis
-docker run -d --name test3 alpine sleep 3600
 ```
 
-## Important Notes
+### K8s targets
+```bash
+kubectl run test1 --image=nginx
+kubectl run test2 --image=redis
+```
 
-- The psdoom-ng container excludes itself from the enemy list
-- Container names truncated to 8 characters for display
-- Requires Docker socket mount (`/var/run/docker.sock`) for container management
-- VNC password is hardcoded as `1234`
+## Ports
+
+| Port | Service |
+|------|---------|
+| 5900 | VNC server |
+| 6080 | noVNC web interface |
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| No enemies in game | Check if other containers are running: `docker ps` |
-| VNC connection refused | Verify container is running: `docker compose ps` |
-| Game won't start | Check Xvfb: `docker exec psdoom-ng xdpyinfo -display :99` |
-| Container not stopping | Check Docker socket mount and permissions |
-| WAD file missing | Rebuild image or manually download doom1.wad |
-
-## Game Controls
-
-- **Arrow keys** - Move
-- **Ctrl** - Shoot
-- **Space** - Open doors
-- **Shift** - Run
-- **1-7** - Select weapon
-- **Esc** - Menu
+| No enemies | Check targets exist: `docker ps` or `kubectl get pods` |
+| K8s auth failed | Verify kubeconfig: `kubectl --context=X get pods` |
+| Mode not switching | Source config: `source /tmp/psdoom-config.env` |
+| VNC black screen | Check Xvfb: `docker exec containerdoom xdpyinfo -display :99` |
